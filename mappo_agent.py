@@ -145,6 +145,9 @@ class MAPPO_MPE:
             v_n = self.critic(critic_inputs)  # v_n.shape(N,1)
             return v_n.numpy().flatten()
 
+    def random_action(self):
+        a_n = np.random.randint(self.action_dim, size=(self.N,))
+        return a_n
     def train(self, replay_buffer, total_steps):
         batch = replay_buffer.get_training_data()  # get training data
 

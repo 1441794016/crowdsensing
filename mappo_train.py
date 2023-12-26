@@ -121,16 +121,16 @@ if __name__ == '__main__':
     region_graph = dgl.graph((u, v))
 
     parser = argparse.ArgumentParser("Hyperparameters Setting for MAPPO in MPE environment")
-    parser.add_argument("--max_train_steps", type=int, default=int(3e6), help=" Maximum number of training steps")
+    parser.add_argument("--max_train_steps", type=int, default=int(10e6), help=" Maximum number of training steps")
     parser.add_argument("--episode_limit", type=int, default=25, help="Maximum number of steps per episode")
-    parser.add_argument("--evaluate_freq", type=float, default=5000, help="Evaluate the policy every 'evaluate_freq' steps")
-    parser.add_argument("--evaluate_times", type=float, default=40, help="Evaluate times")
+    parser.add_argument("--evaluate_freq", type=float, default=2500, help="Evaluate the policy every 'evaluate_freq' steps")
+    parser.add_argument("--evaluate_times", type=float, default=70, help="Evaluate times")
 
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size (the number of episodes)")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size (the number of episodes)")
     parser.add_argument("--mini_batch_size", type=int, default=8, help="Minibatch size (the number of episodes)")
     parser.add_argument("--rnn_hidden_dim", type=int, default=64, help="The number of neurons in hidden layers of the rnn")
     parser.add_argument("--mlp_hidden_dim", type=int, default=64, help="The number of neurons in hidden layers of the mlp")
-    parser.add_argument("--lr", type=float, default=5e-3, help="Learning rate")
+    parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
     parser.add_argument("--lamda", type=float, default=0.95, help="GAE parameter")
     parser.add_argument("--epsilon", type=float, default=0.2, help="GAE parameter")
@@ -156,5 +156,5 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=float, default=0, help="Random seed.")
 
     args = parser.parse_args()
-    runner = Runner_MAPPO_MPE(args, env_name="simple_spread", number=1, seed=0)
+    runner = Runner_MAPPO_MPE(args, env_name="simple_spread", number=2, seed=args.seed)
     runner.run()
