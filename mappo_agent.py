@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
+import numpy as np
 from torch.distributions import Categorical
 from torch.utils.data.sampler import *
 
@@ -17,8 +17,6 @@ def orthogonal_init(layer, gain=1.0):
 class Actor_MLP(nn.Module):
     def __init__(self, args, actor_input_dim):
         super(Actor_MLP, self).__init__()
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
         self.fc1 = nn.Linear(actor_input_dim, args.mlp_hidden_dim)
         self.fc2 = nn.Linear(args.mlp_hidden_dim, args.mlp_hidden_dim)
         self.fc3 = nn.Linear(args.mlp_hidden_dim, args.action_dim)
@@ -32,7 +30,9 @@ class Actor_MLP(nn.Module):
 
     def forward(self, actor_input):
         # When 'choose_action': actor_input.shape=(N, actor_input_dim), prob.shape=(N, action_dim)
-        # When 'train':         actor_input.shape=(mini_batch_size, episode_limit, N, actor_input_dim), prob.shape(mini_batch_size, episode_limit, N, action_dim)
+        # When 'train':
+        # actor_input.shape=(mini_batch_size, episode_limit, N, actor_input_dim),
+        # prob.shape(mini_batch_size, episode_limit, N, action_dim)
         x = self.activate_func(self.fc1(actor_input))
         x = self.activate_func(self.fc2(x))
         prob = torch.softmax(self.fc3(x), dim=-1)
@@ -42,8 +42,6 @@ class Actor_MLP(nn.Module):
 class Critic_MLP(nn.Module):
     def __init__(self, args, critic_input_dim):
         super(Critic_MLP, self).__init__()
-        np.random.seed(args.seed)
-        torch.manual_seed(args.seed)
         self.fc1 = nn.Linear(critic_input_dim, args.mlp_hidden_dim)
         self.fc2 = nn.Linear(args.mlp_hidden_dim, args.mlp_hidden_dim)
         self.fc3 = nn.Linear(args.mlp_hidden_dim, 1)
@@ -56,7 +54,9 @@ class Critic_MLP(nn.Module):
 
     def forward(self, critic_input):
         # When 'get_value': critic_input.shape=(N, critic_input_dim), value.shape=(N, 1)
-        # When 'train':     critic_input.shape=(mini_batch_size, episode_limit, N, critic_input_dim), value.shape=(mini_batch_size, episode_limit, N, 1)
+        # When 'train':
+        # critic_input.shape=(mini_batch_size, episode_limit, N, critic_input_dim),
+        # value.shape=(mini_batch_size, episode_limit, N, 1)
         x = self.activate_func(self.fc1(critic_input))
         x = self.activate_func(self.fc2(x))
         value = self.fc3(x)
@@ -70,7 +70,6 @@ class MAPPO_MPE:
         self.obs_dim = args.obs_dim
         self.state_dim = args.state_dim
         self.episode_limit = args.episode_limit
-        self.rnn_hidden_dim = args.rnn_hidden_dim
 
         self.batch_size = args.batch_size
         self.mini_batch_size = args.mini_batch_size
@@ -106,6 +105,16 @@ class MAPPO_MPE:
         else:
             self.ac_optimizer = torch.optim.Adam(self.ac_parameters, lr=self.lr)
 
+        # action masking
+        self.region_graph = args.region_graph
+        self.mask = np.zeros((args.region_n, args.action_dim))
+        for i in range(self.region_graph.number_of_nodes()):
+            for j in range(self.region_graph.out_degrees(i)):
+                self.mask[i][j] = 1
+            self.mask[i][args.action_dim - 1] = 1
+        self.mask = torch.tensor(self.mask)
+        #
+
     def choose_action(self, obs_n, evaluate):
         with torch.no_grad():
             actor_inputs = []
@@ -123,7 +132,15 @@ class MAPPO_MPE:
                 actor_inputs.append(torch.eye(self.N))
 
             actor_inputs = torch.cat([x for x in actor_inputs], dim=-1)  # actor_input.shape=(N, actor_input_dim)
+
+            # 进行action masking
+            mask_matrix = torch.zeros(self.N, self.action_dim)
+            for i, driver in enumerate(actor_inputs):
+                mask_matrix[i] = self.mask[int(driver[7])]
+
             prob = self.actor(actor_inputs)  # prob.shape=(N,action_dim)
+            prob = prob * mask_matrix
+
             if evaluate:  # When evaluating the policy, we select the action with the highest probability
                 a_n = prob.argmax(dim=-1)
                 return a_n.numpy(), None
@@ -145,9 +162,6 @@ class MAPPO_MPE:
             v_n = self.critic(critic_inputs)  # v_n.shape(N,1)
             return v_n.numpy().flatten()
 
-    def random_action(self):
-        a_n = np.random.randint(self.action_dim, size=(self.N,))
-        return a_n
     def train(self, replay_buffer, total_steps):
         batch = replay_buffer.get_training_data()  # get training data
 
