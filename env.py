@@ -19,8 +19,8 @@ class Env:
         self.region_n = args.region_n  # 地图上划分的区域数量
 
         # 定义维度
-        self.observation_space = 8  # [7 for _ in range(agent_n)]
-        self.action_space = 10  # [10 for _ in range(agent_n)]
+        self.observation_space = 8  # [8 for _ in range(agent_n)]
+        self.action_space = 11  # [10 for _ in range(agent_n)]
         #
 
         self.drivers = []  # a list to record all drivers
@@ -75,7 +75,11 @@ class Env:
         self.PoI_data[28] = 20000
         self.PoI_data[30] = 22000
         self.PoI_data[25] = 9000
+        self.PoI_data[34] = 13000
         self.AoI_data = np.ones(self.region_n)
+
+    def create_poi_data(self):
+        np.random.normal(15000, 7000, (1, 8))
 
     def init_drivers(self):
         """
@@ -88,23 +92,23 @@ class Env:
 
     def init_orders(self):
         # 先随机初始化若干个订单
-        number_of_orders = 50
+        number_of_orders = 150
         region_item = range(self.region_n)
         # prob = [0.01, 0.01, 0.06, 0.10, 0.15, 0.07, 0.02, 0.12, 0.05, 0.005, 0.02, 0.281, 0.04, 0.001, 0.01, 0.01,
         #         0.008, 0.012, 0.01, 0.013]
-        prob = [0.02, 0.06, 0.08, 0.02, 0, 0, 0,
-                0.08, 0.13, 0.1, 0, 0, 0.01, 0.1,
+        prob = [0.02, 0.06, 0.03, 0.02, 0, 0, 0,
+                0.06, 0.13, 0.1, 0, 0, 0.02, 0.1,
                 0.1, 0.01, 0.03, 0, 0, 0, 0.02,
-                0.06, 0.01, 0.03, 0, 0, 0.02, 0,
-                0.03, 0.03, 0.01, 0, 0.05, 0, 0]
+                0.06, 0.01, 0.03, 0, 0.04, 0.02, 0,
+                0.03, 0.02, 0.00, 0, 0.05, 0, 0.04]
         region = np.random.choice(region_item, size=number_of_orders, replace=True, p=prob)
         for i, data in enumerate(region):
-            travel_time = np.random.randint(4, 9)
+            travel_time = np.random.randint(5, 12)
             destination = np.random.randint(0, self.region_n)
             self.orders.append(
                 Order(order_id=self.order_number, init_location=data,
                       generate_time=self.time_slot, waiting_time=15,
-                      price=10, travel_time=travel_time,
+                      price=15, travel_time=travel_time,
                       destination=destination)
             )
             self.order_number += 1
@@ -281,23 +285,45 @@ class Env:
                             self.PoI_data[self.drivers[i].now_location] = 0
 
                 else:
-                    # 进行调度
-                    if not self.drivers[i].is_serving and \
-                            not self.drivers[i].is_dispatched and \
-                            not self.drivers[i].is_collecting_data:
-                        # 进入调度状态
+                    if driver_action == (self.action_space - 2):
+                        # 进行订单匹配
+                        if not self.drivers[i].is_serving and \
+                                not self.drivers[i].is_dispatched and \
+                                not self.drivers[i].is_collecting_data:
 
-                        self.drivers[i].dispatched(self.regions_neighbor[self.drivers[i].now_location][
-                                                       int(driver_action - 1)])
+                            ##### 以下代码对第i个driver匹配订单
+                            random.shuffle(self.orders)
+                            driver_location = self.drivers[i].now_location
+                            for order_index in range(len(self.orders)):
+                                if not self.orders[order_index].is_matched and \
+                                        not self.orders[order_index].is_overdue and \
+                                        self.orders[order_index].init_location == driver_location:
+                                    self.orders[order_index].driver_match(self.drivers[i])
+                                    self.drivers[i].order_match(self.orders[order_index], self.time_slot)
+                                    self.accepted_order_number += 1
+                                    reward[i] += self.args.omega * self.orders[order_index].price
+                                    break
+                            self.orders.sort(key=lambda x: x.order_id)
+                            #####
 
-                        driver_location = self.drivers[i].now_location  # 目前driver的所在地
-                        idle_order = self.get_idle_order()
-                        idle_driver = self.get_idle_driver()
+                    else:
+                        # 进行调度
+                        if not self.drivers[i].is_serving and \
+                                not self.drivers[i].is_dispatched and \
+                                not self.drivers[i].is_collecting_data:
+                            # 进入调度状态
 
-                        reward[i] += self.args.alpha * (max((idle_order[self.drivers[i].dispatched_destination] -
-                                                             idle_driver[self.drivers[i].dispatched_destination]) - \
-                                                            (idle_order[driver_location] - idle_driver[
-                                                                driver_location]), 0))
+                            self.drivers[i].dispatched(self.regions_neighbor[self.drivers[i].now_location][
+                                                           int(driver_action - 1)])
+
+                            driver_location = self.drivers[i].now_location  # 目前driver的所在地
+                            idle_order = self.get_idle_order()
+                            idle_driver = self.get_idle_driver()
+
+                            reward[i] += self.args.alpha * (max((idle_order[self.drivers[i].dispatched_destination] -
+                                                                 idle_driver[self.drivers[i].dispatched_destination]) - \
+                                                                (idle_order[driver_location] - idle_driver[
+                                                                    driver_location]), 0))
 
         return reward
 
@@ -341,7 +367,7 @@ class Env:
         self.update_orders_status()
         self.update_poi_data()
 
-        self.driver_order_match()
+        # self.driver_order_match()
         self.create_orders()
 
         obs_next = self.get_vehicle_observation()

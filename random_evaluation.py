@@ -22,7 +22,8 @@ class Runner_MAPPO_MPE:
         # Only for homogenous agents environments like Spread in MPE,all agents have the same dimension of observation space and action space
         self.args.obs_dim = self.args.obs_dim_n[0]  # The dimensions of an agent's observation space
         self.args.action_dim = self.args.action_dim_n[0]  # The dimensions of an agent's action space
-        self.args.state_dim = np.sum(self.args.obs_dim_n)  # The dimensions of global state space（Sum of the dimensions of the local observation space of all agents）
+        self.args.state_dim = np.sum(
+            self.args.obs_dim_n)  # The dimensions of global state space（Sum of the dimensions of the local observation space of all agents）
         print("observation_space=", self.env.observation_space)
         print("obs_dim_n={}".format(self.args.obs_dim_n))
         print("action_space=", self.env.action_space)
@@ -33,7 +34,8 @@ class Runner_MAPPO_MPE:
         self.replay_buffer = ReplayBuffer(self.args)
 
         # Create a tensorboard
-        self.writer = SummaryWriter(log_dir='runs/MAPPO/MAPPO_env_{}_number_{}_seed_{}'.format(self.env_name, self.number, self.seed))
+        self.writer = SummaryWriter(
+            log_dir='runs/MAPPO/MAPPO_env_{}_number_{}_seed_{}'.format(self.env_name, self.number, self.seed))
 
         self.evaluate_rewards = []  # Record the rewards during the evaluating
         self.total_steps = 0
@@ -48,75 +50,89 @@ class Runner_MAPPO_MPE:
         evaluate_num = 0  # Record the number of evaluations
         while evaluate_num < self.args.max_eva_times:
             self.evaluate_policy()
-            self.total_steps += 2500
-            evaluate_num += 2500
+            self.total_steps += 3200
+            evaluate_num += 3200
         self.evaluate_policy()
         self.env.close()
 
     def evaluate_policy(self, ):
         evaluate_reward = 0
+        evaluate_accept_order = 0
+        evaluate_overdue_order = 0
+        evaluate_data_collected = 0
+        evaluate_ava_AoI = 0
+        evaluate_data_q = 0
         for _ in range(self.args.evaluate_times):
-            episode_reward, _ = self.run_episode_mpe(evaluate=True)
+            episode_reward, accept_order, overdue_order, data_collected, data_q = self.run_episode_mpe(evaluate=True)
             evaluate_reward += episode_reward
+            evaluate_accept_order += accept_order
+            evaluate_overdue_order += overdue_order
+            evaluate_data_collected += data_collected
+            evaluate_data_q += data_q
 
         evaluate_reward = evaluate_reward / self.args.evaluate_times
+        evaluate_accept_order = evaluate_accept_order / self.args.evaluate_times
+        evaluate_overdue_order = evaluate_overdue_order / self.args.evaluate_times
+        evaluate_data_collected = evaluate_data_collected / self.args.evaluate_times
+        evaluate_data_q = evaluate_data_q / self.args.evaluate_times
         self.evaluate_rewards.append(evaluate_reward)
-        print("total_steps:{} \t evaluate_reward:{}".format(self.total_steps, evaluate_reward))
-        self.writer.add_scalar('evaluate_step_rewards_{}'.format(self.env_name), evaluate_reward, global_step=self.total_steps)
-        # Save the rewards and models
-        np.save('./data_train/MAPPO_env_{}_number_{}_seed_{}.npy'.format(self.env_name, self.number, self.seed), np.array(self.evaluate_rewards))
-        self.agent_n.save_model(self.env_name, self.number, self.seed, self.total_steps)
+        print("total_steps:{} \t evaluate_reward:{}".format(self.total_steps, evaluate_reward),
+              " evaluate_accept_order:{}".format(evaluate_accept_order),
+              " evaluate_overdue_order:{}".format(evaluate_overdue_order),
+              " evaluate_data_collected:{}".format(evaluate_data_collected),
+              " evaluate_ava_AoI:{}".format(evaluate_ava_AoI),
+              " evaluate_data_q:{}".format(evaluate_data_q)
+              )
+        self.writer.add_scalar('evaluate_step_rewards_{}'.format(self.env_name), evaluate_reward,
+                               global_step=self.total_steps)
+        self.writer.add_scalar('evaluate_accept_order_{}'.format(self.env_name), evaluate_accept_order,
+                               global_step=self.total_steps)
+        self.writer.add_scalar('evaluate_overdue_order_{}'.format(self.env_name), evaluate_overdue_order,
+                               global_step=self.total_steps)
+        self.writer.add_scalar('evaluate_data_collected_{}'.format(self.env_name), evaluate_data_collected,
+                               global_step=self.total_steps)
+        self.writer.add_scalar('evaluate_data_q_{}'.format(self.env_name), evaluate_data_q,
+                               global_step=self.total_steps)
 
-    def run_episode_mpe(self, evaluate=False):
+    def run_episode_mpe(self, evaluate=True):
         episode_reward = 0
         obs_n = self.env.reset()
         if self.args.use_reward_scaling:
             self.reward_scaling.reset()
         for episode_step in range(self.args.episode_limit):
-            a_n = self.agent_n.random_action()  # Get actions and the corresponding log probabilities of N agents
+            a_n = self.agent_n.random_action(obs_n)  # Get actions and the corresponding log probabilities of N agents
             obs_next_n, r_n, done_n, _ = self.env.step(a_n)
-            episode_reward += r_n[0]
-
-            if not evaluate:
-                if self.args.use_reward_norm:
-                    r_n = self.reward_norm(r_n)
-                elif args.use_reward_scaling:
-                    r_n = self.reward_scaling(r_n)
-
-                # Store the transition
-                self.replay_buffer.store_transition(episode_step, obs_n, s, v_n, a_n, a_logprob_n, r_n, done_n)
-
-            obs_n = obs_next_n
+            episode_reward += r_n.sum() / float(self.args.N)
             if all(done_n):
                 break
+            obs_n = obs_next_n
 
-        if not evaluate:
-            # An episode is over, store v_n in the last step
-            s = np.array(obs_n).flatten()
-            v_n = self.agent_n.get_value(s)
-            self.replay_buffer.store_last_value(episode_step + 1, v_n)
-
-        return episode_reward, episode_step + 1
+        return episode_reward, self.env.accepted_order_number, self.env.overdue_order_number, \
+            self.env.data_collected, self.env.data_q
 
 
 if __name__ == '__main__':
     import dgl
 
-
-    u, v = torch.tensor([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9]), \
-           torch.tensor([1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2, 1, 2, 3, 0, 1, 3, 1, 3, 4, 4, 5, 6, 4, 6, 7, 5, 6, 7])
+    u = torch.load("./dataset/graph/35_region_u.pt")
+    v = torch.load("./dataset/graph/35_region_v.pt")
+    # u, v = torch.tensor([0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9, 9, 9]), \
+    #        torch.tensor([1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2, 1, 2, 3, 0, 1, 3, 1, 3, 4, 4, 5, 6, 4, 6, 7, 5, 6, 7])
     region_graph = dgl.graph((u, v))
 
     parser = argparse.ArgumentParser("Hyperparameters Setting for MAPPO in MPE environment")
-    parser.add_argument("--max_train_steps", type=int, default=int(10e6), help=" Maximum number of training steps")
-    parser.add_argument("--episode_limit", type=int, default=25, help="Maximum number of steps per episode")
-    parser.add_argument("--evaluate_freq", type=float, default=2500, help="Evaluate the policy every 'evaluate_freq' steps")
+    parser.add_argument("--max_train_steps", type=int, default=int(5e6), help=" Maximum number of training steps")
+    parser.add_argument("--episode_limit", type=int, default=200, help="Maximum number of steps per episode")
+    parser.add_argument("--evaluate_freq", type=float, default=3200,
+                        help="Evaluate the policy every 'evaluate_freq' steps")
     parser.add_argument("--evaluate_times", type=float, default=1, help="Evaluate times")
 
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size (the number of episodes)")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size (the number of episodes)")
     parser.add_argument("--mini_batch_size", type=int, default=8, help="Minibatch size (the number of episodes)")
-    parser.add_argument("--rnn_hidden_dim", type=int, default=64, help="The number of neurons in hidden layers of the rnn")
-    parser.add_argument("--mlp_hidden_dim", type=int, default=64, help="The number of neurons in hidden layers of the mlp")
+    parser.add_argument("--rnn_hidden_dim", type=int, default=64,
+                        help="The number of neurons in hidden layers of the rnn")
+    parser.add_argument("--mlp_hidden_dim", type=int, default=64,
+                        help="The number of neurons in hidden layers of the mlp")
     parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
     parser.add_argument("--lamda", type=float, default=0.95, help="GAE parameter")
@@ -124,7 +140,8 @@ if __name__ == '__main__':
     parser.add_argument("--K_epochs", type=int, default=15, help="GAE parameter")
     parser.add_argument("--use_adv_norm", type=bool, default=True, help="Trick 1:advantage normalization")
     parser.add_argument("--use_reward_norm", type=bool, default=True, help="Trick 3:reward normalization")
-    parser.add_argument("--use_reward_scaling", type=bool, default=False, help="Trick 4:reward scaling. Here, we do not use it.")
+    parser.add_argument("--use_reward_scaling", type=bool, default=False,
+                        help="Trick 4:reward scaling. Here, we do not use it.")
     parser.add_argument("--entropy_coef", type=float, default=0.01, help="Trick 5: policy entropy")
     parser.add_argument("--use_lr_decay", type=bool, default=True, help="Trick 6:learning rate Decay")
     parser.add_argument("--use_grad_clip", type=bool, default=True, help="Trick 7: Gradient clip")
@@ -132,17 +149,20 @@ if __name__ == '__main__':
     parser.add_argument("--set_adam_eps", type=float, default=True, help="Trick 9: set Adam epsilon=1e-5")
     parser.add_argument("--use_relu", type=float, default=False, help="Whether to use relu, if False, we will use tanh")
     parser.add_argument("--use_gnn", type=bool, default=False, help="Whether to use GNN")
-    parser.add_argument("--add_agent_id", type=float, default=False, help="Whether to add agent_id. Here, we do not use it.")
+    parser.add_argument("--add_agent_id", type=float, default=False,
+                        help="Whether to add agent_id. Here, we do not use it.")
     parser.add_argument("--use_value_clip", type=float, default=False, help="Whether to use value clip.")
 
-    parser.add_argument("--agent_n", type=int, default=5, help="The number of agent.")
-    parser.add_argument("--region_n", type=int, default=10, help="The number of region.")
-    parser.add_argument("--region_graph", default=region_graph, help="Region graph.")
-    parser.add_argument("--alpha", type=float, default=0.9, help="Reward weight alpha.")
-    parser.add_argument("--beta", type=float, default=0.1, help="Reward weight beta.")
-    parser.add_argument("--seed", type=float, default=0, help="Random seed.")
+    parser.add_argument("--agent_n", type=int, default=100, help="The number of agent.")
     parser.add_argument("--max_eva_times", type=int, default=10e6, help="Max_eva_times.")
+    parser.add_argument("--region_n", type=int, default=35, help="The number of region.")
+    parser.add_argument("--region_graph", default=region_graph, help="Region graph.")
+    parser.add_argument("--order_data_path", default="D:/myCode/crowdSensing/dataset/5-10.csv", help="Dataset path.")
+    parser.add_argument("--alpha", type=float, default=0.0, help="Reward weight alpha.")
+    parser.add_argument("--beta", type=float, default=0.5, help="Reward weight beta.")
+    parser.add_argument("--omega", type=float, default=0.5, help="Reward weight beta.")
+    parser.add_argument("--seed", type=float, default=25, help="Random seed.")
 
     args = parser.parse_args()
-    runner = Runner_MAPPO_MPE(args, env_name="simple_spread", number=2, seed=args.seed)
+    runner = Runner_MAPPO_MPE(args, env_name="action_dim_is_11", number=2, seed=args.seed)
     runner.run()

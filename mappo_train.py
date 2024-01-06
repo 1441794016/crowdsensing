@@ -115,7 +115,8 @@ class Runner_MAPPO_MPE:
             s = np.array(obs_n).flatten()  # In MPE, global state is the concatenation of all agents' local obs.
             v_n = self.agent_n.get_value(s)  # Get the state values (V(s)) of N agents
             obs_next_n, r_n, done_n, _ = self.env.step(a_n)
-            episode_reward += r_n[0]
+            # episode_reward += r_n[0]
+            episode_reward += r_n.sum() / float(self.args.N)
 
             if not evaluate:
                 if self.args.use_reward_norm:
@@ -153,10 +154,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser("Hyperparameters Setting for MAPPO in MPE environment")
     parser.add_argument("--max_train_steps", type=int, default=int(5e6), help=" Maximum number of training steps")
     parser.add_argument("--episode_limit", type=int, default=200, help="Maximum number of steps per episode")
-    parser.add_argument("--evaluate_freq", type=float, default=1600, help="Evaluate the policy every 'evaluate_freq' steps")
+    parser.add_argument("--evaluate_freq", type=float, default=3200, help="Evaluate the policy every 'evaluate_freq' steps")
     parser.add_argument("--evaluate_times", type=float, default=40, help="Evaluate times")
 
-    parser.add_argument("--batch_size", type=int, default=8, help="Batch size (the number of episodes)")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size (the number of episodes)")
     parser.add_argument("--mini_batch_size", type=int, default=8, help="Minibatch size (the number of episodes)")
     parser.add_argument("--rnn_hidden_dim", type=int, default=64, help="The number of neurons in hidden layers of the rnn")
     parser.add_argument("--mlp_hidden_dim", type=int, default=64, help="The number of neurons in hidden layers of the mlp")
@@ -176,16 +177,17 @@ if __name__ == '__main__':
     parser.add_argument("--use_relu", type=float, default=False, help="Whether to use relu, if False, we will use tanh")
     parser.add_argument("--use_gnn", type=bool, default=False, help="Whether to use GNN")
     parser.add_argument("--add_agent_id", type=float, default=False, help="Whether to add agent_id. Here, we do not use it.")
-    parser.add_argument("--use_value_clip", type=float, default=False, help="Whether to use value clip.")
+    parser.add_argument("--use_value_clip", type=float, default=True, help="Whether to use value clip.")
 
     parser.add_argument("--agent_n", type=int, default=100, help="The number of agent.")
     parser.add_argument("--region_n", type=int, default=35, help="The number of region.")
     parser.add_argument("--region_graph", default=region_graph, help="Region graph.")
     parser.add_argument("--order_data_path", default="D:/myCode/crowdSensing/dataset/5-10.csv", help="Dataset path.")
-    parser.add_argument("--alpha", type=float, default=0.7, help="Reward weight alpha.")
-    parser.add_argument("--beta", type=float, default=0.3, help="Reward weight beta.")
-    parser.add_argument("--seed", type=float, default=20, help="Random seed.")
+    parser.add_argument("--alpha", type=float, default=0.00, help="Reward weight alpha.")
+    parser.add_argument("--beta", type=float, default=0.25, help="Reward weight beta.")
+    parser.add_argument("--omega", type=float, default=0.7, help="Reward weight beta.")
+    parser.add_argument("--seed", type=float, default=25, help="Random seed.")
 
     args = parser.parse_args()
-    runner = Runner_MAPPO_MPE(args, env_name="rb", number=2, seed=args.seed)
+    runner = Runner_MAPPO_MPE(args, env_name="test", number=2, seed=args.seed)
     runner.run()

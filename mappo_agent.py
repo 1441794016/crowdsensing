@@ -1,3 +1,5 @@
+import random
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -112,6 +114,7 @@ class MAPPO_MPE:
             for j in range(self.region_graph.out_degrees(i)):
                 self.mask[i][j] = 1
             self.mask[i][args.action_dim - 1] = 1
+            self.mask[i][args.action_dim - 2] = 1
         self.mask = torch.tensor(self.mask)
         #
 
@@ -149,6 +152,49 @@ class MAPPO_MPE:
                 a_n = dist.sample()
                 a_logprob_n = dist.log_prob(a_n)
                 return a_n.numpy(), a_logprob_n.numpy()
+
+    def random_action(self, obs_n):
+        mask_matrix = torch.zeros(self.N, self.action_dim)
+        for i, driver in enumerate(obs_n):
+            mask_matrix[i] = self.mask[int(driver[7])]
+
+        dist = Categorical(probs=mask_matrix)
+        a_n = dist.sample()
+        return a_n
+
+    def greedy_action(self, obs_n):
+        """
+        如果调度，则去往供需比最大的地方
+        :param obs_n:
+        :return:
+        """
+        mask_matrix = torch.zeros(self.N, self.action_dim)
+        for i, driver in enumerate(obs_n):
+            mask_matrix[i] = self.mask[int(driver[7])]
+
+        action = np.zeros((self.N, 1))
+        for i in range(self.N):
+            location = obs_n[i][7]
+            action_type = self.region_graph.out_degrees(i) + 2
+            rand_action = random.randint(0, action_type)
+            if rand_action == action_type - 2:
+                # 匹配
+                action[i] = self.action_dim - 2
+            else:
+                if rand_action == action_type - 1:
+                    # 调度
+                    action[i] = self.action_dim - 1
+                else:
+                    # greddy
+                    idle_order = self.env.get_idle_order()
+                    idle_driver = self.env.get_idle_driver()
+
+                    neighbor = self.env.regions_neighbor[location]
+                    l = []
+                    for j, data in enumerate(neighbor):
+                        l.append(idle_order[data] - idle_driver[data])
+                    action[i] = l.index(max(l))
+        return action
 
     def get_value(self, s):
         with torch.no_grad():
